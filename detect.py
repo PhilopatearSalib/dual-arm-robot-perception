@@ -1,11 +1,15 @@
 from torchvision import transforms
 from utils import *
 from PIL import Image, ImageDraw, ImageFont
-
+import PIL
+import torch
+import cv2
+from os.path import join, isfile
+from os import listdir
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model checkpoint
-checkpoint = 'checkpoint_ssd300.pth.tar'
+checkpoint = 'D:/my college books/SEMESTERS/8 SENIOR2/Waterloo/PyTorch_Object_Detection/For git/checkpoint_ssd300.pth.tar'
 checkpoint = torch.load(checkpoint)
 start_epoch = checkpoint['epoch'] + 1
 print('\nLoaded checkpoint from epoch %d.\n' % start_epoch)
@@ -74,6 +78,7 @@ def detect(original_image, min_score, max_overlap, top_k, suppress=None):
 
         # Boxes
         box_location = det_boxes[i].tolist()
+        print("center pixel of", det_labels[i],"is :", (int)(box_location[0]+box_location[1])/2,",",(int)(box_location[2]+box_location[3])/2)
         draw.rectangle(xy=box_location, outline=label_color_map[det_labels[i]])
         draw.rectangle(xy=[l + 1. for l in box_location], outline=label_color_map[
             det_labels[i]])  # a second rectangle at an offset of 1 pixel to increase line thickness
@@ -91,12 +96,42 @@ def detect(original_image, min_score, max_overlap, top_k, suppress=None):
         draw.text(xy=text_location, text=det_labels[i].upper(), fill='white',
                   font=font)
     del draw
-
+    
     return annotated_image
 
+def video_into_frames( video_path,saved_path ):
+
+    vidcap = cv2.VideoCapture(video_path)
+    success,image = vidcap.read()
+    count = 0
+    while success:
+      cv2.imwrite(os.path.join(saved_path , "frame%d.jpg" % count), image) # save frame as JPEG file
+      success,image = vidcap.read()
+      print ('Read a new frame: ', success)
+      count += 1
+      
 
 if __name__ == '__main__':
-    img_path = '/media/ssd/ssd data/VOC2007/JPEGImages/000001.jpg'
-    original_image = Image.open(img_path, mode='r')
-    original_image = original_image.convert('RGB')
-    detect(original_image, min_score=0.2, max_overlap=0.5, top_k=200).show()
+    video_path = 'D:\my college books\SEMESTERS\8 SENIOR2\Waterloo\cutting video into frames'  #put the video path in here
+    saving_path = 'D:/my college books/SEMESTERS/8 SENIOR2/Spring20/Datasets/2011_09_26_drive_0009_sync/2011_09_26/2011_09_26_drive_0009_sync/image_02/data' #put the desired path to save the frames in it
+    video_into_frames (video_path,saving_path)
+    imageObjects = []
+    imgFiles  = [
+        join( saving_path, fn )                    # Create full paths to images
+        for fn in listdir( saving_path )           # For each item in the image folder
+        if isfile( join( saving_path, fn ) )       # If the item is indeed a file
+        and fn.lower().endswith(('.png','.jpg'))   # Which ends with an image suffix (can add more types here if needed)
+    ]
+    
+    for imgFile in imgFiles:
+        original_image = Image.open(imgFile, mode='r')
+        original_image = original_image.convert('RGB')
+        prohibted_list=['bottle','bird','tvmonitor','aeroplane', 'boat','chair', 'cat','cow','diningtable', 'horse', 'pottedplant', 'sheep','sofa',] #for the Kitti dataset we wouldn't face any of those classes 
+        output_im = detect(original_image, min_score=0.2, max_overlap=0.49, top_k=200,suppress= prohibted_list).show()
+
+    
+    
+#    img_path = 'D:/my college books/SEMESTERS/8 SENIOR2/Waterloo/PyTorch_Object_Detection/VOCdevkit/VOC2007/JPEGImages/000330.jpg'
+#    original_image = Image.open(img_path, mode='r')
+#    original_image = original_image.convert('RGB')
+#    detect(original_image, min_score=0.2, max_overlap=0.46, top_k=200).show()

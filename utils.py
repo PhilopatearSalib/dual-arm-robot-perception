@@ -49,7 +49,7 @@ def parse_annotation(annotation_path):
     return {'boxes': boxes, 'labels': labels, 'difficulties': difficulties}
 
 
-def create_data_lists(voc07_path, voc12_path, output_folder):
+def create_data_lists(voc07_path, voc12_path,gastro_path,kitti_path, output_folder):
     """
     Create lists of images, the bounding boxes and labels of the objects in these images, and save these to file.
 
@@ -59,7 +59,9 @@ def create_data_lists(voc07_path, voc12_path, output_folder):
     """
     voc07_path = os.path.abspath(voc07_path)
     voc12_path = os.path.abspath(voc12_path)
-
+    gastro_path = os.path.abspath(gastro_path)
+    kitti_path = os.path.abspath(kitti_path)
+    
     train_images = list()
     train_objects = list()
     n_objects = 0
@@ -81,6 +83,40 @@ def create_data_lists(voc07_path, voc12_path, output_folder):
             train_images.append(os.path.join(path, 'JPEGImages', id + '.jpg'))
 
     assert len(train_objects) == len(train_images)
+
+    for path in [gastro_path]:
+
+        # Find IDs of images in training data
+        with open(os.path.join(path, 'train.txt')) as f:
+            ids = f.read().splitlines()
+
+        for id in ids:
+            # Parse annotation's XML file
+            objects = parse_annotation(os.path.join(path, 'Labels/converted_labels', id + '.xml'))
+            if len(objects) == 0:
+                continue
+            n_objects += len(objects)
+            train_objects.append(objects)
+            train_images.append(os.path.join(path, 'images', id + '.jpg'))
+            
+    for path in [kitti_path]:
+
+        # Find IDs of images in training data
+        with open(os.path.join(path, 'ImageSets/Main/trainval.txt')) as f:
+            ids = f.read().splitlines()
+
+        for id in ids:
+            # Parse annotation's XML file
+            objects = parse_annotation(os.path.join(path, 'Annotations', id + '.xml'))
+            if len(objects) == 0:
+                continue
+            n_objects += len(objects)
+            train_objects.append(objects)
+            train_images.append(os.path.join(path, 'JPEGImages', id + '.jpg'))
+            
+
+    assert len(train_objects) == len(train_images)
+
 
     # Save to file
     with open(os.path.join(output_folder, 'TRAIN_images.json'), 'w') as j:
