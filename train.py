@@ -7,7 +7,7 @@ from datasets import PascalVOCDataset
 from utils import *
 
 # Data parameters
-data_folder = 'D:/my college books/SEMESTERS/8 SENIOR2/Waterloo/PyTorch_Object_Detection'  # folder with data files
+data_folder = './'  # folder with data files (output of create_data_lists.py)
 keep_difficult = True  # use objects considered difficult to detect?
 
 # Model parameters
@@ -17,7 +17,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Learning parameters
 checkpoint = None  # path to model checkpoint, None if none
-batch_size = 6  # batch size
+batch_size = 6  # batch size (8 in the upstream code; reduced to fit a laptop GPU)
 iterations = 120000  # number of iterations to train
 workers = 4  # number of workers for loading data in the DataLoader
 print_freq = 200  # print training status every __ batches
@@ -54,7 +54,7 @@ def main():
                                     lr=lr, momentum=momentum, weight_decay=weight_decay)
 
     else:
-        checkpoint = torch.load(checkpoint)
+        checkpoint = load_checkpoint(checkpoint)
         start_epoch = checkpoint['epoch'] + 1
         print('\nLoaded checkpoint from epoch %d.\n' % start_epoch)
         model = checkpoint['model']

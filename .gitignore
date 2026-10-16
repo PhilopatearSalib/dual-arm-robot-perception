@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pth.tar
+TRAIN_images.json
+TRAIN_objects.json
+TEST_images.json
+TEST_objects.json
+label_map.json
+frames/

@@ -1,35 +1,15 @@
-# Script to convert yolo annotations to voc format
+"""
+Convert YOLO annotations (.txt, one "class x_center y_center width height" line per object,
+normalized to the image size) into PASCAL VOC XML files.
 
-# Sample format
-# <annotation>
-#     <folder>_image_fashion</folder>
-#     <filename>brooke-cagle-39574.jpg</filename>
-#     <size>
-#         <width>1200</width>
-#         <height>800</height>
-#         <depth>3</depth>
-#     </size>
-#     <segmented>0</segmented>
-#     <object>
-#         <name>head</name>
-#         <pose>Unspecified</pose>
-#         <truncated>0</truncated>
-#         <difficult>0</difficult>
-#         <bndbox>
-#             <xmin>549</xmin>
-#             <ymin>251</ymin>
-#             <xmax>625</xmax>
-#             <ymax>335</ymax>
-#         </bndbox>
-#     </object>
-# <annotation>
+Usage:
+    python convert.py --labels LABELS_DIR --images IMAGES_DIR --output OUTPUT_DIR
+"""
+import argparse
 import os
-import xml.etree.cElementTree as ET
+import xml.etree.ElementTree as ET
+
 from PIL import Image
-
-ANNOTATIONS_DIR_PREFIX = "D:/my college books/SEMESTERS/8 SENIOR2/Waterloo/Gastro_dataset/Labels"
-
-DESTINATION_DIR = "D:/my college books/SEMESTERS/8 SENIOR2/Waterloo/Gastro_dataset/Labels/converted_labels"
 
 CLASS_MAPPING = {
     '0': 'robot',
@@ -41,18 +21,17 @@ CLASS_MAPPING = {
     '6': 'pasta dispenser',
     '7': 'stovetop',
     '8': 'panhandle'
-
 }
 
 
 def create_root(file_prefix, width, height):
-    root = ET.Element("annotations ")
-    ET.SubElement(root, "\nfolder").text = "D:/my college books/SEMESTERS/8 SENIOR2/Waterloo/Gastro_dataset/Labels"
-    ET.SubElement(root, "\n filename").text = "{}.jpg".format(file_prefix)
-    size = ET.SubElement(root, "\nsize")
-    ET.SubElement(size, "\nwidth").text = str(width)
-    ET.SubElement(size, "\nheight").text = str(height)
-    ET.SubElement(size, "\ndepth").text = "3"
+    root = ET.Element("annotation")
+    ET.SubElement(root, "folder").text = "images"
+    ET.SubElement(root, "filename").text = "{}.jpg".format(file_prefix)
+    size = ET.SubElement(root, "size")
+    ET.SubElement(size, "width").text = str(width)
+    ET.SubElement(size, "height").text = str(height)
+    ET.SubElement(size, "depth").text = "3"
     return root
 
 
@@ -64,55 +43,60 @@ def create_object_annotation(root, voc_labels):
         ET.SubElement(obj, "truncated").text = str(0)
         ET.SubElement(obj, "difficult").text = str(0)
         bbox = ET.SubElement(obj, "bndbox")
-        ET.SubElement(bbox, "xmin").text = str(voc_label[1])
-        ET.SubElement(bbox, "ymin").text = str(voc_label[2])
-        ET.SubElement(bbox, "xmax").text = str(voc_label[3])
-        ET.SubElement(bbox, "ymax").text = str(voc_label[4])
+        # VOC boxes are integer pixel coordinates
+        ET.SubElement(bbox, "xmin").text = str(int(round(voc_label[1])))
+        ET.SubElement(bbox, "ymin").text = str(int(round(voc_label[2])))
+        ET.SubElement(bbox, "xmax").text = str(int(round(voc_label[3])))
+        ET.SubElement(bbox, "ymax").text = str(int(round(voc_label[4])))
     return root
 
 
-def create_file(file_prefix, width, height, voc_labels):
+def create_file(output_dir, file_prefix, width, height, voc_labels):
     root = create_root(file_prefix, width, height)
     root = create_object_annotation(root, voc_labels)
     tree = ET.ElementTree(root)
-    tree.write("{}/{}.xml".format(DESTINATION_DIR, file_prefix))
+    tree.write(os.path.join(output_dir, "{}.xml".format(file_prefix)))
 
 
-def read_file(file_path):
-    file_prefix = file_path.split(".txt")[0]
-    image_file_name = "{}.jpg".format(file_prefix)
-    img = Image.open("{}/{}".format("D:/my college books/SEMESTERS/8 SENIOR2/Waterloo/Gastro_dataset/images", image_file_name))
+def read_file(labels_dir, images_dir, output_dir, filename):
+    file_prefix = os.path.splitext(filename)[0]
+    img = Image.open(os.path.join(images_dir, "{}.jpg".format(file_prefix)))
     w, h = img.size
-    with open(file_path, 'r') as file:
-        lines = file.readlines()
+    with open(os.path.join(labels_dir, filename), 'r') as file:
         voc_labels = []
-        for line in lines:
-            voc = []
-            line = line.strip()
+        for line in file:
             data = line.split()
-            voc.append(CLASS_MAPPING.get(data[0]))
+            if len(data) != 5:
+                continue
+            if data[0] not in CLASS_MAPPING:
+                print("Unknown class id {} in {}".format(data[0], filename))
+                continue
             bbox_width = float(data[3]) * w
             bbox_height = float(data[4]) * h
             center_x = float(data[1]) * w
             center_y = float(data[2]) * h
-            voc.append(center_x - (bbox_width / 2))
-            voc.append(center_y - (bbox_height / 2))
-            voc.append(center_x + (bbox_width / 2))
-            voc.append(center_y + (bbox_height / 2))
-            voc_labels.append(voc)
-        create_file(file_prefix, w, h, voc_labels)
-    print("Processing complete for file: {}".format(file_path))
+            voc_labels.append([CLASS_MAPPING[data[0]],
+                               max(center_x - (bbox_width / 2), 0),
+                               max(center_y - (bbox_height / 2), 0),
+                               min(center_x + (bbox_width / 2), w),
+                               min(center_y + (bbox_height / 2), h)])
+        create_file(output_dir, file_prefix, w, h, voc_labels)
+    print("Processing complete for file: {}".format(filename))
 
 
-def start():
-    if not os.path.exists(DESTINATION_DIR):
-        os.makedirs(DESTINATION_DIR)
-    for filename in os.listdir(ANNOTATIONS_DIR_PREFIX):
-        if filename.endswith('txt'):
-            read_file(filename)
+def start(labels_dir, images_dir, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    for filename in sorted(os.listdir(labels_dir)):
+        if filename.endswith('.txt') and filename != 'classes.txt':
+            read_file(labels_dir, images_dir, output_dir, filename)
         else:
             print("Skipping file: {}".format(filename))
 
 
 if __name__ == "__main__":
-    start()
+    parser = argparse.ArgumentParser(description='Convert YOLO annotations to PASCAL VOC XML.')
+    parser.add_argument('--labels', required=True, help='folder of YOLO .txt files')
+    parser.add_argument('--images', required=True, help='folder of the matching .jpg images')
+    parser.add_argument('--output', required=True, help='folder for the VOC .xml files')
+    args = parser.parse_args()
+    start(args.labels, args.images, args.output)

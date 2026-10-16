@@ -1,5 +1,6 @@
 import json
 import os
+from collections import Counter
 import torch
 import random
 import xml.etree.ElementTree as ET
@@ -13,6 +14,10 @@ voc_labels = ('aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'c
 label_map = {k: v + 1 for v, k in enumerate(voc_labels)}
 label_map['background'] = 0
 rev_label_map = {v: k for k, v in label_map.items()}  # Inverse mapping
+
+# Labels found in annotation files that are not in label_map, and therefore skipped.
+# create_data_lists() reports these, so classes missing from the label map are not dropped silently.
+skipped_labels = Counter()
 
 # Color map for bounding boxes of detected objects from https://sashat.me/2017/01/11/list-of-20-simple-distinct-colors/
 distinct_colors = ['#e6194b', '#3cb44b', '#ffe119', '#0082c8', '#f58231', '#911eb4', '#46f0f0', '#f032e6',
@@ -34,6 +39,7 @@ def parse_annotation(annotation_path):
 
         label = object.find('name').text.lower().strip()
         if label not in label_map:
+            skipped_labels[label] += 1
             continue
 
         bbox = object.find('bndbox')
@@ -49,74 +55,74 @@ def parse_annotation(annotation_path):
     return {'boxes': boxes, 'labels': labels, 'difficulties': difficulties}
 
 
-def create_data_lists(voc07_path, voc12_path,gastro_path,kitti_path, output_folder):
+def _add_split(images, objects, image_dir, annotation_dir, ids):
+    """
+    Parse the annotation of each image ID and append images that contain at least one known object.
+
+    :return: number of objects added
+    """
+    n_objects = 0
+    for id in ids:
+        annotation_path = os.path.join(annotation_dir, id + '.xml')
+        if not os.path.isfile(annotation_path):
+            continue
+        parsed = parse_annotation(annotation_path)
+        if len(parsed['boxes']) == 0:
+            continue
+        n_objects += len(parsed['boxes'])
+        objects.append(parsed)
+        images.append(os.path.join(image_dir, id + '.jpg'))
+    return n_objects
+
+
+def _read_ids(path):
+    with open(path) as f:
+        return [line.strip() for line in f.read().splitlines() if line.strip()]
+
+
+def create_data_lists(voc07_path, voc12_path, output_folder, gastro_path=None, gastro_annotations='labels',
+                      kitti_path=None):
     """
     Create lists of images, the bounding boxes and labels of the objects in these images, and save these to file.
 
     :param voc07_path: path to the 'VOC2007' folder
     :param voc12_path: path to the 'VOC2012' folder
     :param output_folder: folder where the JSONs must be saved
+    :param gastro_path: optional path to the robot-kitchen ("Gastro") dataset, containing 'images/', 'train.txt'
+                        (one image ID per line) and a folder of VOC-format XML annotations
+    :param gastro_annotations: name of the annotation folder inside gastro_path
+    :param kitti_path: optional path to KITTI frames already converted to VOC layout
+                       ('ImageSets/Main/trainval.txt', 'Annotations/', 'JPEGImages/')
     """
     voc07_path = os.path.abspath(voc07_path)
     voc12_path = os.path.abspath(voc12_path)
-    gastro_path = os.path.abspath(gastro_path)
-    kitti_path = os.path.abspath(kitti_path)
-    
+    skipped_labels.clear()
+
     train_images = list()
     train_objects = list()
     n_objects = 0
 
-    # Training data
+    # Training data: VOC 2007 and 2012
     for path in [voc07_path, voc12_path]:
+        ids = _read_ids(os.path.join(path, 'ImageSets/Main/trainval.txt'))
+        n_objects += _add_split(train_images, train_objects, os.path.join(path, 'JPEGImages'),
+                                os.path.join(path, 'Annotations'), ids)
 
-        # Find IDs of images in training data
-        with open(os.path.join(path, 'ImageSets/Main/trainval.txt')) as f:
-            ids = f.read().splitlines()
+    # Optional: robot-kitchen dataset
+    if gastro_path is not None:
+        gastro_path = os.path.abspath(gastro_path)
+        ids = _read_ids(os.path.join(gastro_path, 'train.txt'))
+        n_objects += _add_split(train_images, train_objects, os.path.join(gastro_path, 'images'),
+                                os.path.join(gastro_path, gastro_annotations), ids)
 
-        for id in ids:
-            # Parse annotation's XML file
-            objects = parse_annotation(os.path.join(path, 'Annotations', id + '.xml'))
-            if len(objects) == 0:
-                continue
-            n_objects += len(objects)
-            train_objects.append(objects)
-            train_images.append(os.path.join(path, 'JPEGImages', id + '.jpg'))
-
-    assert len(train_objects) == len(train_images)
-
-    for path in [gastro_path]:
-
-        # Find IDs of images in training data
-        with open(os.path.join(path, 'train.txt')) as f:
-            ids = f.read().splitlines()
-
-        for id in ids:
-            # Parse annotation's XML file
-            objects = parse_annotation(os.path.join(path, 'Labels/converted_labels', id + '.xml'))
-            if len(objects) == 0:
-                continue
-            n_objects += len(objects)
-            train_objects.append(objects)
-            train_images.append(os.path.join(path, 'images', id + '.jpg'))
-            
-    for path in [kitti_path]:
-
-        # Find IDs of images in training data
-        with open(os.path.join(path, 'ImageSets/Main/trainval.txt')) as f:
-            ids = f.read().splitlines()
-
-        for id in ids:
-            # Parse annotation's XML file
-            objects = parse_annotation(os.path.join(path, 'Annotations', id + '.xml'))
-            if len(objects) == 0:
-                continue
-            n_objects += len(objects)
-            train_objects.append(objects)
-            train_images.append(os.path.join(path, 'JPEGImages', id + '.jpg'))
-            
+    # Optional: KITTI frames in VOC layout
+    if kitti_path is not None:
+        kitti_path = os.path.abspath(kitti_path)
+        ids = _read_ids(os.path.join(kitti_path, 'ImageSets/Main/trainval.txt'))
+        n_objects += _add_split(train_images, train_objects, os.path.join(kitti_path, 'JPEGImages'),
+                                os.path.join(kitti_path, 'Annotations'), ids)
 
     assert len(train_objects) == len(train_images)
-
 
     # Save to file
     with open(os.path.join(output_folder, 'TRAIN_images.json'), 'w') as j:
@@ -141,10 +147,10 @@ def create_data_lists(voc07_path, voc12_path,gastro_path,kitti_path, output_fold
     for id in ids:
         # Parse annotation's XML file
         objects = parse_annotation(os.path.join(voc07_path, 'Annotations', id + '.xml'))
-        if len(objects) == 0:
+        if len(objects['boxes']) == 0:
             continue
         test_objects.append(objects)
-        n_objects += len(objects)
+        n_objects += len(objects['boxes'])
         test_images.append(os.path.join(voc07_path, 'JPEGImages', id + '.jpg'))
 
     assert len(test_objects) == len(test_images)
@@ -157,6 +163,25 @@ def create_data_lists(voc07_path, voc12_path,gastro_path,kitti_path, output_fold
 
     print('\nThere are %d test images containing a total of %d objects. Files have been saved to %s.' % (
         len(test_images), n_objects, os.path.abspath(output_folder)))
+
+    if skipped_labels:
+        print('\nWARNING: these labels are not in label_map and were skipped:')
+        for label, count in skipped_labels.most_common():
+            print('  %-20s %d' % (label, count))
+        print('Add them to the label map in utils.py to train on them.')
+
+
+def load_checkpoint(path):
+    """
+    Load a full-model checkpoint saved by train.py.
+
+    PyTorch 2.6 and later default to weights_only=True, which cannot load a pickled model object,
+    so weights_only=False is passed where supported. Only load checkpoints you trust.
+    """
+    try:
+        return torch.load(path, map_location=device, weights_only=False)
+    except TypeError:  # older PyTorch without the weights_only argument
+        return torch.load(path, map_location=device)
 
 
 def decimate(tensor, m):
@@ -603,7 +628,7 @@ def photometric_distort(image):
 
     for d in distortions:
         if random.random() < 0.5:
-            if d.__name__ is 'adjust_hue':
+            if d.__name__ == 'adjust_hue':
                 # Caffe repo uses a 'hue_delta' of 18 - we divide by 255 because PyTorch needs a normalized value
                 adjust_factor = random.uniform(-18 / 255., 18 / 255.)
             else:

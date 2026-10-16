@@ -1,11 +1,32 @@
-import os
-count = [0,0,0,0,0,0,0,0,0,0] 
-for filename in os.listdir('D:/my college books/SEMESTERS/8 SENIOR2/Waterloo/Gastro_dataset/Labels'):
-	if filename.endswith('txt'):
-		with open(os.path.join('D:/my college books/SEMESTERS/8 SENIOR2/Waterloo/Gastro_dataset/Labels',filename), 'r') as file:
-			lines = file.readlines()
-			for line in lines:
-				count[int(line[0])] =  count[int(line[0])] + 1
-        	
-print(count)     	
+"""
+Count annotated objects per class in a folder of YOLO .txt or PASCAL VOC .xml annotation files.
 
+Usage:
+    python stats.py LABELS_DIR
+"""
+import argparse
+import os
+import xml.etree.ElementTree as ET
+from collections import Counter
+
+from convert import CLASS_MAPPING
+
+parser = argparse.ArgumentParser(description='Count objects per class.')
+parser.add_argument('labels_dir')
+args = parser.parse_args()
+
+count = Counter()
+for filename in os.listdir(args.labels_dir):
+    path = os.path.join(args.labels_dir, filename)
+    if filename.endswith('.txt') and filename != 'classes.txt':
+        with open(path) as file:
+            for line in file:
+                fields = line.split()
+                if fields:
+                    count[CLASS_MAPPING.get(fields[0], 'class ' + fields[0])] += 1
+    elif filename.endswith('.xml'):
+        for obj in ET.parse(path).getroot().iter('object'):
+            count[obj.find('name').text.strip().lower()] += 1
+
+for name, n in count.most_common():
+    print('%-20s %d' % (name, n))

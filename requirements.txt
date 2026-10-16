@@ -1,0 +1,6 @@
+# Developed in 2020 with Python 3.7 and PyTorch 1.x.
+# The fixed version also runs on current releases.
+torch
+torchvision
+Pillow
+opencv-python
